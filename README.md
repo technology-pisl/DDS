@@ -117,6 +117,38 @@ manage yourself) for no benefit over Firebase Hosting.
 4. Consider requiring 2FA for all collaborators (GitHub org setting) and
    turning on secret scanning / push protection for the repo.
 
+## Testing locally with the Firebase Emulator Suite
+
+The app can run entirely against local emulators — no real Firebase project,
+no network access, no cost — which is how this rebuild was verified end to
+end (full login/PIN-lockout/entry-approval/admin-override/security-boundary
+testing) before being committed.
+
+1. `npm install -g firebase-tools`, then `cd functions && npm install`.
+2. Start the emulators: `firebase emulators:start --project demo-dds-test --only auth,firestore,functions`
+   (any `demo-` prefixed project id works offline, no real GCP project needed).
+3. Serve `public/` with any static file server, e.g. `cd public && python3 -m http.server 8765`.
+4. Open `http://localhost:8765/index.html` (or `127.0.0.1`) — the app
+   detects it's running on localhost and automatically points Auth/
+   Firestore/Functions at the emulators instead of production (see
+   `USE_EMULATORS` near the top of `public/index.html`). App Check is
+   skipped under the emulator, since it needs real network access to
+   Google's servers even in debug mode.
+5. The Firebase compat SDKs are normally loaded from `gstatic.com`; if your
+   network can't reach it, set `window.DDS_LOCAL_SDK_TEST_ONLY = true` before
+   the app loads and drop matching copies of the `firebase-*-compat.js`
+   files (from the `firebase` npm package) into `public/vendor-test-only/`
+   (gitignored — this is a local-only fallback, never used in production).
+6. Reset emulator state between runs with:
+   `curl -X DELETE http://localhost:8080/emulator/v1/projects/demo-dds-test/databases/\(default\)/documents`
+   and `curl -X DELETE http://localhost:9099/emulator/v1/projects/demo-dds-test/accounts`.
+
+None of this touches production: `USE_EMULATORS` only triggers on
+`localhost`/`127.0.0.1`, and App Check enforcement in `functions/index.js`
+only relaxes if you set `DDS_TEST_DISABLE_APPCHECK=true` in a
+`functions/.env.local` file — a filename Firebase only ever loads for the
+emulator, never for a deployed function.
+
 ## Migrating data from the old app (optional)
 
 The old project stored PINs in plaintext, so treat every existing PIN as

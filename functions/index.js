@@ -23,7 +23,11 @@ const ROLES = ["admin", "user", "si", "sadmin"];
 // All callables require App Check by default; the client attaches a token
 // obtained via reCAPTCHA v3, so scripted callers without a real browser
 // session are rejected before the function body even runs.
-const CALL_OPTS = { enforceAppCheck: true };
+// DDS_TEST_DISABLE_APPCHECK is for local emulator testing only (set via
+// functions/.env.local, which is gitignored) — reCAPTCHA activation needs
+// real network access to Google's servers that a local/offline test
+// environment may not have. Never set in a deployed environment.
+const CALL_OPTS = { enforceAppCheck: process.env.DDS_TEST_DISABLE_APPCHECK !== "true" };
 
 function requireAuth(request) {
   if (!request.auth) {

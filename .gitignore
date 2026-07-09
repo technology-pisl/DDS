@@ -8,3 +8,4 @@ firestore-debug.log
 ui-debug.log
 serviceAccountKey*.json
 .DS_Store
+public/vendor-test-only/

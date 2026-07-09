@@ -1000,19 +1000,31 @@ const MASTER_DEFAULT=[
 // SECURITY: Firestore rules (firestore.rules) now deny ALL direct client
 // reads/writes except signed-in reads. Every mutation goes through a Cloud
 // Function (functions/index.js) under the Admin SDK — this app never writes
-// to Firestore directly. These values are public web-app identifiers, not secrets.
-const FB_API_KEY    = 'AIzaSyBl9IY_1gW9fDJsw79mnWvHzLlzbh6Kjd8';
-const FB_PROJECT_ID = 'dds-data-pisl';
-const FB_APP_ID     = '1:795736914452:web:f69ef03d9b61a970590501';
+// to Firestore directly. These values are public web-app identifiers, not
+// secrets, but they still MUST point at YOUR OWN, NEW Firebase project —
+// never reuse an old app's project here.
+// TODO: fill in from Firebase Console > Project settings > General > "Your apps"
+const FB_API_KEY    = 'REPLACE_WITH_YOUR_API_KEY';
+const FB_PROJECT_ID = 'REPLACE_WITH_YOUR_PROJECT_ID';
+const FB_APP_ID     = 'REPLACE_WITH_YOUR_APP_ID';
 // TODO: fill in from Firebase Console > App Check > reCAPTCHA v3 site key
 const RECAPTCHA_SITE_KEY = 'REPLACE_WITH_RECAPTCHA_V3_SITE_KEY';
 
-// Firebase config — hardcoded, no localStorage needed
-let CFG = {
-  apiKey:    FB_API_KEY,
-  projectId: FB_PROJECT_ID,
-  appId:     FB_APP_ID,
-};
+// Local testing only: when served from localhost/127.0.0.1, connect to the
+// Firebase Emulator Suite (`firebase emulators:start`) instead of production
+// Firebase, and bypass real reCAPTCHA via the App Check debug token. This
+// never triggers in a real deployment — DDS_FORCE_PROD can override it in
+// case a real deployment is ever served from a "localhost"-named host.
+const USE_EMULATORS = !window.DDS_FORCE_PROD &&
+  (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+
+// Firebase config — hardcoded, no localStorage needed. Under the emulator
+// suite, the SDK never actually calls Google servers with these, so any
+// non-empty placeholder works and the "demo-" project id needs no real
+// GCP project or credentials at all.
+let CFG = USE_EMULATORS
+  ? { apiKey: 'demo-key', projectId: 'demo-dds-test', appId: '1:0:web:0' }
+  : { apiKey: FB_API_KEY, projectId: FB_PROJECT_ID, appId: FB_APP_ID };
 
 // Master data config — CSV URL and last sync time (stored in localStorage)
 let MCFG = {gurl:'', lastSync:null};
@@ -1126,11 +1138,15 @@ function todayQtyOf(e){
 
 // ── FIREBASE BACKEND ──────────────────────────────────────────────────────────
 
-const FB_SDK   = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js';
-const FS_SDK   = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js';
-const AUTH_SDK = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js';
-const FNS_SDK  = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js';
-const APPCHECK_SDK = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check-compat.js';
+// DDS_LOCAL_SDK_TEST_ONLY: when set (by the local test harness only), load
+// the Firebase compat SDKs from a local vendored copy instead of gstatic.com
+// — for environments where that CDN isn't reachable. Never set in production.
+const _sdkBase = window.DDS_LOCAL_SDK_TEST_ONLY ? './vendor-test-only' : 'https://www.gstatic.com/firebasejs/10.12.0';
+const FB_SDK   = `${_sdkBase}/firebase-app-compat.js`;
+const FS_SDK   = `${_sdkBase}/firebase-firestore-compat.js`;
+const AUTH_SDK = `${_sdkBase}/firebase-auth-compat.js`;
+const FNS_SDK  = `${_sdkBase}/firebase-functions-compat.js`;
+const APPCHECK_SDK = `${_sdkBase}/firebase-app-check-compat.js`;
 
 function loadScript(src){
   return new Promise((res,rej)=>{
@@ -1163,7 +1179,11 @@ async function initFirebase(){
     // Activate App Check BEFORE any Firestore/Functions call — callables and
     // reads are rejected without a valid App Check token once enforcement
     // is on for a project. isTokenAutoRefreshEnabled = true (2nd arg).
-    if(!APP_CHECK_READY){
+    // Skipped entirely under the emulator suite: the emulators don't verify
+    // App Check tokens, and activate() needs real network access to Google's
+    // App Check backend even with a debug token, which a local/offline test
+    // environment may not have.
+    if(!APP_CHECK_READY && !USE_EMULATORS){
       try{
         firebase.appCheck().activate(RECAPTCHA_SITE_KEY, true);
         APP_CHECK_READY=true;
@@ -1174,6 +1194,12 @@ async function initFirebase(){
     DB=firebase.firestore(app);
     auth=firebase.auth(app);
     fns=firebase.functions(app);
+    if(USE_EMULATORS){
+      DB.useEmulator('localhost', 8080);
+      auth.useEmulator('http://localhost:9099', {disableWarnings:true});
+      fns.useEmulator('localhost', 5001);
+      console.warn('DDS: connected to local Firebase emulators (USE_EMULATORS=true).');
+    }
     if(!_authInited){
       _authInited=true;
       auth.onAuthStateChanged(user=>{
@@ -1442,13 +1468,13 @@ async function loadFromBackend(){
   // ── Start real-time listeners (auth is confirmed truthy above) ──────────
   stopListeners(); // clear any existing listeners first
 
-  // Vendors real-time listener — any add/delete/edit on any device updates all others
+  // Vendors real-time listener — any add/delete/edit on any device updates all others.
+  // NOTE: deliberately no "ignore empty snapshot" guard here — deleting the
+  // last vendor for a site is a normal admin action and must actually clear
+  // VENDORS, not leave the deleted vendor stuck in the UI. Firestore's
+  // real-time listeners deliver consistent snapshots; an empty one means the
+  // collection really is empty, not a transient glitch.
   _unsubVendors = DB.collection('vendors').onSnapshot(snap=>{
-    // Guard against transient empty snapshots wiping the local array
-    if(!snap.docs.length){
-      console.warn('Vendors listener: empty snapshot ignored (would wipe local vendors).');
-      return;
-    }
     // adminUpsertVendor() never stores an `id` field on the doc — the
     // Firestore doc ID IS the vendor id, needed for adminUpsertVendor(edit)
     // / adminDeleteVendor calls.
