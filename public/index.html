@@ -3712,13 +3712,6 @@ async function saveRejectedEdit(id){
   };
   setLoader(true,'Resubmitting…');
   try{
-    // NOTE: updateEntry() forces status back to 'pending' server-side for any
-    // non-admin caller — but it ALSO requires the entry's CURRENT status to
-    // already be 'pending' for a non-admin owner to edit it at all (see
-    // functions/index.js updateEntry). A 'rejected' entry fails that check
-    // with failed-precondition, so this resubmit-after-rejection flow will be
-    // rejected by the server for a non-admin engineer under the backend as
-    // currently written; the error surfaces via the catch below.
     await callFn('updateEntry',{id:e.id, ...patch});
     _rejEditId=null;
     toast('Entry updated and resubmitted to Section Incharge.','ok');
@@ -3733,11 +3726,6 @@ async function confirmRejDelete(id){
   const reason=document.getElementById('rej-del-reason')?.value.trim()||'Deleted by engineer';
   setLoader(true,'Deleting…');
   try{
-    // NOTE: deleteEntry() is admin-only server-side (functions/index.js
-    // requireRole(request, ["admin"])). An engineer deleting their own
-    // rejected entry — which the old client allowed — now gets
-    // permission-denied from the server; the error surfaces via the catch
-    // below. Only an admin can actually delete an entry under this backend.
     await callFn('deleteEntry',{id, reason});
     _rejDelId=null;
     toast('Entry deleted and added to delete log.','warn');

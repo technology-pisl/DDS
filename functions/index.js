@@ -359,8 +359,8 @@ exports.updateEntry = onCall(CALL_OPTS, async (request) => {
   const isOwner = entry.userId === a.uid;
   const isAdmin = a.token.role === "admin";
   if (!isOwner && !isAdmin) throw new HttpsError("permission-denied", "Not your entry.");
-  if (isOwner && !isAdmin && entry.status !== "pending") {
-    throw new HttpsError("failed-precondition", "Approved/rejected entries can only be edited by an admin.");
+  if (isOwner && !isAdmin && entry.status !== "pending" && entry.status !== "rejected") {
+    throw new HttpsError("failed-precondition", "Approved entries can only be edited by an admin.");
   }
 
   const patch = pickEntryFields(request.data);
@@ -402,13 +402,20 @@ exports.reviewEntry = onCall(CALL_OPTS, async (request) => {
 });
 
 exports.deleteEntry = onCall(CALL_OPTS, async (request) => {
-  const a = requireRole(request, ["admin"]);
+  const a = requireAuth(request);
   const id = assertNonEmptyString(request.data.id, "id", 128);
   const reason = String(request.data.reason || "").slice(0, 300);
 
   const ref = db.collection("entries").doc(id);
   const snap = await ref.get();
   if (!snap.exists) throw new HttpsError("not-found", "Entry not found.");
+  const entry = snap.data();
+
+  const isAdmin = a.token.role === "admin";
+  const isOwnRejected = entry.userId === a.uid && entry.status === "rejected";
+  if (!isAdmin && !isOwnRejected) {
+    throw new HttpsError("permission-denied", "Only an admin can delete this entry.");
+  }
 
   const batch = db.batch();
   batch.set(db.collection("delete_log").doc(), {
