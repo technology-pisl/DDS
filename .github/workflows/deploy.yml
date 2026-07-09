@@ -1,0 +1,39 @@
+name: Deploy DDS
+
+# Deploys only run automatically from main, and main should be protected
+# (required PR review, no direct pushes) — see README "Locking down deploys".
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install function dependencies
+        working-directory: functions
+        run: npm ci
+
+      - name: Deploy to Firebase (hosting, functions, firestore rules)
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+        run: |
+          echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > /tmp/gcp-key.json
+          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json
+          npx firebase-tools@latest deploy \
+            --project "$FIREBASE_PROJECT_ID" \
+            --only hosting,functions,firestore:rules \
+            --non-interactive
+          rm -f /tmp/gcp-key.json

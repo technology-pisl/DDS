@@ -1,0 +1,11 @@
+{
+  "name": "dds-migration-scripts",
+  "private": true,
+  "scripts": {
+    "migrate": "node migrate.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "firebase-admin": "^12.3.1"
+  }
+}

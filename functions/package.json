@@ -1,0 +1,22 @@
+{
+  "name": "dds-functions",
+  "description": "Server-side backend for DDS (Daily Workdone Status) - all data mutations and authentication live here so the browser client can never write to the database directly.",
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "scripts": {
+    "lint": "eslint .",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "firebase-admin": "^12.3.1",
+    "firebase-functions": "^5.0.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  },
+  "private": true
+}

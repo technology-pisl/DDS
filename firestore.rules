@@ -1,0 +1,63 @@
+rules_version = '2';
+
+// Security model: every mutation happens in functions/index.js via the
+// Admin SDK, which is NOT subject to these rules. Client code (the browser)
+// only ever reads. Every collection below denies "write" outright, and
+// "read" requires a signed-in user (request.auth != null) — meaning a
+// successful server-verified login via the login() Cloud Function. Nobody,
+// including someone with the public Firebase API key and full devtools
+// access, can create/modify/delete a document by talking to Firestore
+// directly; they can only do so by calling a Cloud Function, which applies
+// its own role checks first.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function role() {
+      return request.auth.token.role;
+    }
+    function isAdmin() {
+      return signedIn() && role() == 'admin';
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // PIN hashes and lockout state. Never readable or writable by clients.
+    match /credentials/{uid} {
+      allow read, write: if false;
+    }
+
+    match /entries/{id} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /delete_log/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /vendors/{id} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /counters/{id} {
+      allow read, write: if false;
+    }
+
+    match /config/{id} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Deny anything not explicitly listed above.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
