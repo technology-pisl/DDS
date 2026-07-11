@@ -458,6 +458,7 @@ input.qty-err{border-color:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.1);color
     <button class="tab" onclick="aTab('vendors',this)">Vendors</button>
     <button class="tab" onclick="aTab('unlocks',this)">Date Unlocks</button>
     <button class="tab" onclick="aTab('records',this)">All Records</button>
+    <button class="tab" onclick="aTab('productivity',this)">Productivity</button>
     <button class="tab" id="admin-pending-tab" onclick="aTab('pending',this)">Pending</button>
     <button class="tab" onclick="aTab('dellog',this)">Delete Log</button>
     <button class="tab" onclick="aTab('settings',this)">&#9881; Settings</button>
@@ -678,6 +679,24 @@ input.qty-err{border-color:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.1);color
     <div class="tbl-scroll"><table id="ar-table">
       <thead id="ar-thead"></thead>
       <tbody id="artbody"></tbody>
+    </table></div>
+  </div>
+
+  <div id="ap-productivity" class="panel">
+    <div class="sec">Productivity Report</div>
+    <div class="info-box" style="margin-bottom:10px">&#9432; Based on <strong>approved</strong> entries only. Workdone Qty is summed per WBS category (as tagged in Master Data); Labour Engaged = (Skilled Day + Skilled OT + Unskilled Day + Unskilled OT) &divide; 11.</div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="g g3">
+        <div class="field"><span class="lbl">Site</span>
+          <select id="prod-site" onchange="renderProductivity()"><option value="">All Sites</option></select>
+        </div>
+        <div class="field"><span class="lbl">From Date</span><input type="date" id="prod-from" onchange="renderProductivity()"></div>
+        <div class="field"><span class="lbl">To Date</span><input type="date" id="prod-to" onchange="renderProductivity()"></div>
+      </div>
+    </div>
+    <div class="tbl-scroll"><table id="prod-table">
+      <thead><tr><th>Sr No</th><th>WBS</th><th>Unit</th><th>Workdone Qty</th><th>Labour Engaged</th><th>Productivity</th></tr></thead>
+      <tbody id="prod-tbody"></tbody>
     </table></div>
   </div>
 
@@ -1149,6 +1168,26 @@ function todayQtyOf(e){
   if(e.qtyToday!=null && +e.qtyToday>0) return +e.qtyToday;
   const mq=masterQtyOf(e);
   return mq>0 ? +((mq * (+e.todayPct||0))/100).toFixed(3) : 0;
+}
+
+// WBS (Work Breakdown Structure) categories used by the Productivity report.
+// Master data rows may tag each activity with a WBS column; anything blank or
+// unrecognized buckets into "Others".
+const WBS_CATEGORIES=['Shuttering','Concrete','Reinforcement C/B','Reinforcement Tying','Scaffolding'];
+const WBS_UNITS={Shuttering:'Sqm',Concrete:'Cum','Reinforcement C/B':'MT','Reinforcement Tying':'MT',Scaffolding:'Cum'};
+function classifyWBS(raw){
+  const s=(raw||'').trim().toLowerCase();
+  const hit=WBS_CATEGORIES.find(c=>c.toLowerCase()===s);
+  return hit||'Others';
+}
+// Resolve an entry's WBS category. Prefers the value captured at submission
+// time (e.wbs, stored the same way qty/rate/bench are); falls back to a live
+// master-data lookup for entries submitted before the WBS column existed.
+function wbsOf(e){
+  if(!e) return 'Others';
+  if(e.wbs) return classifyWBS(e.wbs);
+  const mr=getMR(e.site||'', e.str||'', e.act||'', e.elem||'', e.loc||'', e.cat||'');
+  return classifyWBS(mr&&mr.wbs);
 }
 
 // ── FIREBASE BACKEND ──────────────────────────────────────────────────────────
@@ -2345,7 +2384,8 @@ window.render_admin_pending = renderAdminPending;
 function aTab(id,btn){document.querySelectorAll('#s-admin .panel').forEach(p=>p.classList.remove('on'));document.querySelectorAll('#s-admin .tab').forEach(b=>b.classList.remove('on'));document.getElementById('ap-'+id)?.classList.add('on');if(btn)btn.classList.add('on');if(id==='records')renderAR();if(id==='dellog')renderDelLog();
   if(id==='pending')renderAdminPending();
   if(id==='users'){renderUT();populateSIDropdowns();}
-  if(id==='si'){renderSIUserTable();}}
+  if(id==='si'){renderSIUserTable();}
+  if(id==='productivity'){populateProdSiteDD();renderProductivity();}}
 
 function adminStartEdit(id){
   const entry=ENTRIES.find(e=>e.id===id);
@@ -3365,7 +3405,7 @@ async function submitEntry(){const d=gv('f-date');
   // ignored anyway (submitEntry/updateEntry whitelist ENTRY_FIELDS).
   const data={
     site,date:d,str,act,elem,loc,cat,remark,
-    uom:mr?mr.uom:'',qty:mr?mr.qty:0,rate:mr?mr.rate:0,bench:mr?mr.bench:0,
+    uom:mr?mr.uom:'',qty:mr?mr.qty:0,rate:mr?mr.rate:0,bench:mr?mr.bench:0,wbs:mr?(mr.wbs||''):'',
     vendor,pm,supply:computeSupply(vendor,pm),
     skDay:+document.getElementById('f-skd').value||0,
     skOT:+document.getElementById('f-skot').value||0,
@@ -3445,6 +3485,8 @@ function _scheduleRender(){
       if(document.getElementById('ap-records')?.classList.contains('on')) renderAR();
       // Admin Pending tab
       if(document.getElementById('ap-pending')?.classList.contains('on')) renderAdminPending();
+      // Admin Productivity tab
+      if(document.getElementById('ap-productivity')?.classList.contains('on')) renderProductivity();
       // Engineer My Records
       if(document.getElementById('up-records')?.classList.contains('on')) renderFT();
       // Engineer Awaiting SI
@@ -3785,6 +3827,7 @@ async function saveRejectedEdit(id){
     vendor:document.getElementById('rej-vendor')?.value||e.vendor,
     qtyToday:qtyToday, todayPct:newPct, qty:totalQty,
     uom:mr?mr.uom:e.uom||'', rate:mr?mr.rate:e.rate||0, bench:mr?mr.bench:e.bench||0,
+    wbs:mr?(mr.wbs||''):(e.wbs||''),
     remark:document.getElementById('rej-remark')?.value||'',
   };
   setLoader(true,'Resubmitting…');
@@ -4857,6 +4900,48 @@ function printRec(){
 }
 
 
+
+function populateProdSiteDD(){
+  const sel=document.getElementById('prod-site');if(!sel)return;
+  const cur=sel.value;
+  const sites=getSites();
+  sel.innerHTML='<option value="">All Sites</option>'+sites.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  sel.value=cur;
+}
+
+function renderProductivity(){
+  const tb=document.getElementById('prod-tbody');if(!tb)return;
+  const site=document.getElementById('prod-site')?.value||'';
+  const from=document.getElementById('prod-from')?.value||'';
+  const to=document.getElementById('prod-to')?.value||'';
+  const rows=ENTRIES.filter(e=>{
+    if(e.status!=='approved'&&e.status)return false; // approved (or legacy undefined-status) entries only
+    if(site&&e.site!==site)return false;
+    if(from&&e.date<from)return false;
+    if(to&&e.date>to)return false;
+    return true;
+  });
+  const buckets={};
+  WBS_CATEGORIES.forEach(c=>buckets[c]={qty:0,labour:0});
+  rows.forEach(e=>{
+    const cat=wbsOf(e);
+    if(!buckets[cat])return; // Others — not broken out into the productivity calc
+    buckets[cat].qty+=todayQtyOf(e);
+    buckets[cat].labour+=(+e.skDay||0)+(+e.skOT||0)+(+e.uskDay||0)+(+e.uskOT||0);
+  });
+  const fmt2=x=>(+x||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  const bodyRows=WBS_CATEGORIES.map((cat,i)=>{
+    const b=buckets[cat];
+    const labourEngaged=b.labour/11;
+    const productivity=labourEngaged>0?b.qty/labourEngaged:0;
+    return`<tr>
+      <td>${i+1}</td><td>${esc(cat)}</td><td>${esc(WBS_UNITS[cat])}</td>
+      <td>${fmt2(b.qty)}</td><td>${fmt2(labourEngaged)}</td>
+      <td>${labourEngaged>0?fmt2(productivity):'—'}</td>
+    </tr>`;
+  }).join('');
+  tb.innerHTML=bodyRows+`<tr><td>${WBS_CATEGORIES.length+1}</td><td style="color:#dc2626">Others</td><td colspan="4" style="color:var(--color-text-tertiary);font-size:10px">Not broken out — see All Records for uncategorized activities</td></tr>`;
+}
 
 function getArFiltered(){
   // Returns the currently filtered All Records rows

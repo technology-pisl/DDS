@@ -442,7 +442,7 @@ exports.adminDeleteUser = onCall(CALL_OPTS, async (request) => {
 const ENTRY_FIELDS = [
   "site", "str", "act", "elem", "loc", "cat", "remark", "uom", "qty", "rate",
   "bench", "vendor", "pm", "supply", "skDay", "skOT", "uskDay", "uskOT",
-  "todayPct", "qtyToday", "date",
+  "todayPct", "qtyToday", "date", "wbs",
 ];
 
 function pickEntryFields(data) {
@@ -676,6 +676,7 @@ function parseCsv(text) {
     qty: colIndex(["quantity", "qty"], 7),
     rate: colIndex(["rate", "labour"], 8),
     bench: colIndex(["benchmark"], 9),
+    wbs: colIndex(["wbs"], -1),
   };
   // Strip thousands separators/currency symbols/etc. that spreadsheet
   // formatting can add (e.g. "2,056.94") before parsing as a number.
@@ -708,6 +709,7 @@ function parseCsv(text) {
       qty: num(g("qty")),
       rate: num(g("rate")),
       bench: num(g("bench")),
+      wbs: g("wbs"),
     });
   }
   return out;
