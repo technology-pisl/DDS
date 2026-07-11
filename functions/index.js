@@ -58,6 +58,24 @@ function assertNonEmptyString(v, field, maxLen = 200) {
   return v.trim();
 }
 
+// Employee codes are the admin-assigned, human-readable identifier for every
+// account (engineer/SI/site admin/admin) — required and unique across all
+// users, checked case-insensitively so "eng-014" and "ENG-014" can't collide.
+// This is a business-level label for linking/lookup, not a security
+// boundary: the server still identifies who's actually calling a function by
+// their real signed-in uid (request.auth), never by a client-supplied code.
+async function assertUniqueEmpCode(empCode, excludeUid) {
+  const trimmed = assertNonEmptyString(empCode, "empCode", 50);
+  const snap = await db.collection("users").get();
+  const dup = snap.docs.find(
+    (d) => d.id !== excludeUid && (d.data().empCode || "").trim().toLowerCase() === trimmed.toLowerCase(),
+  );
+  if (dup) {
+    throw new HttpsError("already-exists", `Employee code "${trimmed}" is already assigned to ${dup.data().name}.`);
+  }
+  return trimmed;
+}
+
 // ── AUTH ─────────────────────────────────────────────────────────────────
 
 /**
@@ -88,6 +106,8 @@ exports.bootstrapAdmin = onCall(CALL_OPTS, async (request) => {
     throw new HttpsError("failed-precondition", "Setup already completed.");
   }
 
+  const empCode = await assertUniqueEmpCode(request.data.empCode);
+
   const userRecord = await auth.createUser({ displayName: name });
   const uid = userRecord.uid;
   await auth.setCustomUserClaims(uid, { role: "admin", site: "", siId: "" });
@@ -97,7 +117,7 @@ exports.bootstrapAdmin = onCall(CALL_OPTS, async (request) => {
     name,
     role: "admin",
     site: "",
-    empCode: "",
+    empCode,
     siId: "",
     active: true,
     createdAt: FieldValue.serverTimestamp(),
@@ -228,7 +248,7 @@ exports.adminCreateUser = onCall(CALL_OPTS, async (request) => {
   const role = request.data.role;
   if (!ROLES.includes(role)) throw new HttpsError("invalid-argument", "Invalid role.");
   const site = String(request.data.site || "").slice(0, 300);
-  const empCode = String(request.data.empCode || "").slice(0, 50);
+  const empCode = await assertUniqueEmpCode(request.data.empCode);
   const siId = String(request.data.siId || "").slice(0, 128);
   const pin = String(request.data.pin || "0000");
   assertPin(pin);
@@ -268,7 +288,7 @@ exports.adminUpdateUser = onCall(CALL_OPTS, async (request) => {
   const patch = {};
   if (request.data.name !== undefined) patch.name = assertNonEmptyString(request.data.name, "name", 100);
   if (request.data.site !== undefined) patch.site = String(request.data.site).slice(0, 300);
-  if (request.data.empCode !== undefined) patch.empCode = String(request.data.empCode).slice(0, 50);
+  if (request.data.empCode !== undefined) patch.empCode = await assertUniqueEmpCode(request.data.empCode, uid);
   if (request.data.siId !== undefined) patch.siId = String(request.data.siId).slice(0, 128);
   if (request.data.role !== undefined) {
     if (!ROLES.includes(request.data.role)) throw new HttpsError("invalid-argument", "Invalid role.");

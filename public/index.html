@@ -428,6 +428,7 @@ input.qty-err{border-color:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.1);color
       <div style="font-size:11px;color:#9ca3af;margin-top:3px">No users exist yet — create the first admin login</div>
     </div>
     <div class="field" style="margin-bottom:11px"><span class="lbl">Full Name</span><input type="text" id="ba-name" placeholder="e.g. Site Admin"></div>
+    <div class="field" style="margin-bottom:11px"><span class="lbl">Employee Code</span><input type="text" id="ba-empcode" placeholder="e.g. ADM-01"></div>
     <div class="field" style="margin-bottom:11px"><span class="lbl">PIN (4–6 digits)</span><input type="password" id="ba-pin" placeholder="Choose a PIN" maxlength="6"></div>
     <div class="field" style="margin-bottom:16px"><span class="lbl">Confirm PIN</span><input type="password" id="ba-pin-conf" placeholder="Confirm PIN" maxlength="6" onkeydown="if(event.key==='Enter')doBootstrapAdmin()"><span class="err" id="ba-err" style="display:none"></span></div>
     <button class="btn pri" style="width:100%;justify-content:center;padding:9px" onclick="doBootstrapAdmin()">Create Admin Account</button>
@@ -493,7 +494,7 @@ input.qty-err{border-color:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.1);color
           </div>
         </div>
         <div class="field"><span class="lbl">Full Name (= Engineer)</span><input type="text" id="nu-name" placeholder="e.g. Ketan Jha"></div>
-        <div class="field"><span class="lbl">Employee Code</span><input type="text" id="nu-code" placeholder="EMP-1042"></div>
+        <div class="field"><span class="lbl">Employee Code *</span><input type="text" id="nu-code" placeholder="EMP-1042"></div>
         <div class="field" id="nu-si-row"><span class="lbl">Section Incharge</span><select id="nu-si"><option value="">— None —</option></select><span class="hint">Only for engineer users</span></div>
       </div>
       <div class="g g3">
@@ -531,8 +532,8 @@ input.qty-err{border-color:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.1);color
         <div class="field"><span class="lbl">Full Name</span>
           <input type="text" id="si-new-name" placeholder="e.g. Rakesh Sharma" onkeydown="if(event.key==='Enter')addSIUser()">
         </div>
-        <div class="field"><span class="lbl">Employee Code</span>
-          <input type="text" id="si-new-code" placeholder="Auto (SI-01, SI-02…)">
+        <div class="field"><span class="lbl">Employee Code *</span>
+          <input type="text" id="si-new-code" placeholder="e.g. SI-01">
         </div>
         <div class="field"><span class="lbl">PIN</span>
           <input type="password" id="si-new-pin" placeholder="Default: 0000" maxlength="6">
@@ -1915,6 +1916,7 @@ async function saveEU(){
   if(!n){toast('Name cannot be empty.','er');return;}
   if(USERS.find(x=>x.name.toLowerCase()===n.toLowerCase()&&x.id!==EU_ID)){toast('Name taken.','er');return;}
   const empCode=document.getElementById('eu-code').value.trim();
+  if(!empCode){toast('Employee code is required.','er');return;}
   const role=document.getElementById('eu-role').value;
   setLoader(true,'Saving…');
   try{
@@ -1949,7 +1951,8 @@ async function addSIUser(){
   const code=(document.getElementById('si-new-code')?.value||'').trim();
   const pin=(document.getElementById('si-new-pin')?.value||'').trim();
   if(!name){toast('Name is required.','er');return;}
-  const finalCode=code||(isSiteAdmin?autoSACode():autoSICode());
+  if(!code){toast('Employee code is required.','er');return;}
+  const finalCode=code;
   const finalPin=pin||'0000';
   if(pin&&!/^\d{4,6}$/.test(pin)){toast('PIN must be 4–6 digits.','er');return;}
   if(USERS.find(u=>u.name.toLowerCase()===name.toLowerCase()&&(u.role==='si'||u.role==='sadmin'))){
@@ -1981,20 +1984,6 @@ async function addSIUser(){
     // USERS/renders refresh reactively via the users onSnapshot listener.
   }catch(ex){toast(ex.message||'Add failed.','er');}
   finally{setLoader(false);}
-}
-
-function autoSACode(){
-  const existing=USERS.filter(u=>u.role==='sadmin').map(u=>u.empCode||'').filter(c=>/^SA-\d+$/.test(c));
-  let max=0;
-  existing.forEach(c=>{const n=parseInt(c.slice(3));if(n>max)max=n;});
-  return'SA-'+String(max+1).padStart(2,'0');
-}
-
-function autoSICode(){
-  const existing=USERS.filter(u=>u.role==='si').map(u=>u.empCode||'');
-  let n=1;
-  while(existing.includes('SI-'+String(n).padStart(2,'0')))n++;
-  return 'SI-'+String(n).padStart(2,'0');
 }
 
 // Pure/local decision logic: which engineers (by in-memory USERS snapshot)
@@ -2127,6 +2116,7 @@ async function saveEditSI(){
   const pin=(document.getElementById('esi-pin').value||'').trim();
   const role=(document.getElementById('esi-role').value||'si');
   if(!name){toast('Name cannot be empty.','er');return;}
+  if(!code){toast('Employee code is required.','er');return;}
   if(pin&&!/^\d{4,6}$/.test(pin)){toast('PIN must be 4–6 digits.','er');return;}
   if(role!=='si'&&role!=='sadmin'){toast('Invalid role.','er');return;}
   const oldRole=u.role;
@@ -2134,7 +2124,7 @@ async function saveEditSI(){
   const site=esiSites.join(',');
   setLoader(true,'Saving…');
   try{
-    await callFn('adminUpdateUser',{uid:id, name, site, role, ...(code?{empCode:code}:{})});
+    await callFn('adminUpdateUser',{uid:id, name, site, role, empCode:code});
     if(pin) await callFn('adminSetPin',{targetUserId:id, newPin:pin});
     // If role changed from si → sadmin, unlink engineers (sadmin doesn't review entries)
     if(oldRole==='si'&&role==='sadmin'){
@@ -2264,18 +2254,20 @@ async function populateLoginDD(){
 }
 async function doBootstrapAdmin(){
   const name=(document.getElementById('ba-name').value||'').trim();
+  const empCode=(document.getElementById('ba-empcode').value||'').trim();
   const pin=(document.getElementById('ba-pin').value||'').trim();
   const conf=(document.getElementById('ba-pin-conf').value||'').trim();
   const errEl=document.getElementById('ba-err');
   errEl.style.display='none';
   if(!name){errEl.style.display='block';errEl.textContent='Name is required.';return;}
+  if(!empCode){errEl.style.display='block';errEl.textContent='Employee code is required.';return;}
   if(!/^\d{4,6}$/.test(pin)){errEl.style.display='block';errEl.textContent='PIN must be 4–6 digits.';return;}
   if(pin!==conf){errEl.style.display='block';errEl.textContent='PINs do not match.';return;}
   setLoader(true,'Creating admin account…');
   try{
     const ok=await initFirebase();
     if(!ok){setLoader(false);errEl.style.display='block';errEl.textContent='Could not reach Firebase.';return;}
-    const {uid}=await callFn('bootstrapAdmin',{name,pin});
+    const {uid}=await callFn('bootstrapAdmin',{name,empCode,pin});
     // bootstrapAdmin() only returns {uid} (no token) — call login() next to
     // get a real token + profile, exactly like a normal sign-in, "re-fetching
     // who we are" as the very first user of the freshly-created account.
@@ -2592,7 +2584,7 @@ function populateSIDropdowns(){
     if(!sel)return;
     const cur=sel.value;
     const parts=['<option value="">— None —</option>'];
-    parts.push(siUsers.map(u=>`<option value="${esc(u.id)}" data-name="${esc(u.name)}">${esc(u.name)}</option>`).join(''));
+    parts.push(siUsers.map(u=>`<option value="${esc(u.id)}" data-name="${esc(u.name)}">${esc(u.name)}${u.empCode?' — '+esc(u.empCode):''}</option>`).join(''));
     // Also add SILIST names that aren't SI-role users yet (backward compat)
     SILIST.forEach(name=>{
       if(!siUsers.find(u=>u.name===name)){
@@ -2608,6 +2600,7 @@ async function addUser(){
   const site=sites.join(',');
   const name=document.getElementById('nu-name').value.trim(),code=document.getElementById('nu-code').value.trim(),role=gv('nu-role'),pin=document.getElementById('nu-pin').value.trim()||'0000';
   if(!name){toast('Name required.','er');return;}
+  if(!code){toast('Employee code is required.','er');return;}
   if(!/^\d{4,6}$/.test(pin)){toast('PIN must be 4-6 digits.','er');return;}
   // Resolve SI: nu-si value can be a user ID or a legacy name
   const siSel=document.getElementById('nu-si');
@@ -2684,6 +2677,7 @@ async function saveEUModal(){
   if(!name){toast('Name cannot be empty.','er');return;}
   const sites=getCheckedSites('eu-site-list');
   const empCode=document.getElementById('eu-modal-code').value.trim();
+  if(!empCode){toast('Employee code is required.','er');return;}
   const site=sites.join(',');
   const euSiSel=document.getElementById('eu-modal-si');
   const euSiVal=euSiSel?.value||'';
