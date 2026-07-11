@@ -4537,9 +4537,8 @@ function exportSI(){
     ['S.No','DDS','Engineer','Emp Code','Site','Date','Structure','Activity','Element','Location','Category','Remark','UOM','Total Qty','Rate (₹)','Vendor','Payment','SK Day','SK OT','USK Day','USK OT','Cum. SK Day','Cum. SK OT','Cum. USK Day','Cum. USK OT','Qty Today','Qty Remaining','Cum Qty Done'],
     ...rows.map((e,_i)=>{
       const tq=+e.qty||0;
-      const qd=tq>0?fmt2(tq*(+e.todayPct||0)/100):(e.qtyToday||0);
-      const vv=getPctUpTo(e,e.date);
-      const cumQty=tq>0?fmt2(tq*vv/100):0;
+      const qd=fmt2(todayQtyOf(e));
+      const cumQty=tq>0?fmt2(getCumQtyUpTo(e,e.date)):0;
       const rem=tq>0?fmt2(Math.max(0,tq-cumQty)):0;
       return[
         _i+1,e.ddsNo||'',e.eng||'',e.empCode||'',e.site||'',fmtDate(e.date),
@@ -4587,9 +4586,8 @@ function printSI(){
       <tbody>
         ${rows.map(e=>{
           const tq=+e.qty||0;
-          const qd=tq>0?fmt2(tq*(+e.todayPct||0)/100):fmt2(e.qtyToday||0);
-          const vv=getPctUpTo(e,e.date);
-          const cumQty=tq>0?(tq*vv/100):0;
+          const qd=fmt2(todayQtyOf(e));
+          const cumQty=tq>0?getCumQtyUpTo(e,e.date):0;
           const rem=tq>0?fmt2(Math.max(0,tq-cumQty)):'—';
           return`<tr>
             <td>${e.ddsNo||'—'}</td>
@@ -5421,9 +5419,8 @@ function exportSA(kind){
     hdr=['S.No','DDS','Engineer','Site','Date','Structure','Activity','Element','Location','Category','Remark','UOM','Total Qty','Rate (₹)','Vendor','Payment','Skilled Day','Skilled OT','UnSkilled Day','UnSkilled OT','Cum. SK Day','Cum. SK OT','Cum. USK Day','Cum. USK OT','Qty Today','Qty Remaining','Cum Qty Done'];
     let sno=0;
     dataRows=rows.map(e=>{
-      const vv=getPctUpTo(e,e.date);
-      const qd=e.qty>0?fmt2(e.qty*(+e.todayPct||0)/100):(+e.qtyToday||0);
-      const cumQty=e.qty>0?fmt2(e.qty*vv/100):0;
+      const qd=fmt2(todayQtyOf(e));
+      const cumQty=e.qty>0?fmt2(getCumQtyUpTo(e,e.date)):0;
       const qtyRem=e.qty>0?fmt2(Math.max(0,e.qty-cumQty)):0;
       return[++sno,e.ddsNo,e.eng||'',e.site||'',fmtDate(e.date),e.str||'',e.act||'',e.elem||'',e.loc||'',e.cat||'',e.remark||'',e.uom||'',e.qty||0,e.rate||0,e.vendor||'',e.supply||'',+e.skDay||0,+e.skOT||0,+e.uskDay||0,+e.uskOT||0,+e.cumP||0,+e.cumQ||0,+e.cumR||0,+e.cumS||0,qd,qtyRem,cumQty];
     });
@@ -5433,7 +5430,7 @@ function exportSA(kind){
       .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
     hdr=['Engineer','Site','Date','Structure','Activity','Element','Location','Vendor','UOM','Total Qty','Qty Today','Status','SI Remark'];
     dataRows=rows.map(e=>{
-      const qd=e.qty>0?fmt2(e.qty*(+e.todayPct||0)/100):(+e.qtyToday||0);
+      const qd=fmt2(todayQtyOf(e));
       return[e.eng||'',e.site||'',fmtDate(e.date),e.str||'',e.act||'',e.elem||'',e.loc||'',e.vendor||'',e.uom||'',e.qty||0,qd,e.status||'pending',e.siRemark||''];
     });
     sheetName='Pending';filePrefix='SA_Pending';
@@ -5464,9 +5461,8 @@ function printSA(kind){
   const sites=_saSites().join(', ')||'(no sites)';
   let sno=0;
   const trs=rows.map(e=>{
-    const vv=getPctUpTo(e,e.date);
-    const qd=e.qty>0?fmt2(e.qty*(+e.todayPct||0)/100):fmt2(e.qtyToday||0);
-    const cumQty=e.qty>0?(e.qty*vv/100):0;
+    const qd=fmt2(todayQtyOf(e));
+    const cumQty=e.qty>0?getCumQtyUpTo(e,e.date):0;
     const rem=e.qty>0?fmt2(Math.max(0,e.qty-cumQty)):'—';
     return`<tr>
       <td>${++sno}</td><td>${e.ddsNo}</td><td>${esc(e.eng)}</td><td>${esc(e.site||'—')}</td>
