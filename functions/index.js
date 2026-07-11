@@ -303,6 +303,19 @@ exports.adminUpdateUser = onCall(CALL_OPTS, async (request) => {
     patch.role = request.data.role;
   }
 
+  // Every engineer must have a real, current Section Incharge — checked
+  // against the resulting (patched) role/siId so this can't be bypassed by
+  // any edit path, including ones that don't touch siId at all.
+  const effectiveRole = patch.role !== undefined ? patch.role : snap.data().role;
+  if (effectiveRole === "user") {
+    const effectiveSiId = patch.siId !== undefined ? patch.siId : snap.data().siId || "";
+    if (!effectiveSiId) throw new HttpsError("invalid-argument", "Section Incharge is required for engineers.");
+    const siSnap = await db.collection("users").doc(effectiveSiId).get();
+    if (!siSnap.exists || siSnap.data().role !== "si") {
+      throw new HttpsError("invalid-argument", "siId must reference an existing Section Incharge.");
+    }
+  }
+
   await userRef.set(patch, { merge: true });
 
   if (patch.role !== undefined || patch.site !== undefined || patch.siId !== undefined) {

@@ -2686,6 +2686,7 @@ async function saveEUModal(){
   const euSiId=euSiUser?euSiUser.id:'';
   const euRole=document.getElementById('eu-modal-role').value;
   const siId=(euRole==='si'||euRole==='admin')?'':euSiId;
+  if(euRole==='user'&&!siId){toast('Section Incharge is required for engineers.','er');return;}
   setLoader(true,'Saving…');
   try{
     await callFn('adminUpdateUser',{uid, name, site, empCode, siId, role:euRole});
