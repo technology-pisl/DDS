@@ -2096,7 +2096,7 @@ function renderSIUserTable(){
       <td style="color:var(--color-text-secondary)">${esc(u.empCode||'—')}</td>
       <td>${siteBadges}</td>
       <td style="max-width:280px">${engBadges}</td>
-      <td style="white-space:nowrap">
+      <td style="white-space:nowrap;max-width:none;overflow:visible">
         <button class="btn sm edt" onclick="openEditSI('${u.id}')">Edit</button>
         <button class="btn sm" onclick="openPinModal('${u.id}')">Change PIN</button>
         ${isInactive
@@ -2748,7 +2748,7 @@ function renderUT(){
         return siName?`<span style="font-weight:500">${esc(siName)}</span>`:'<span style="color:var(--color-text-tertiary)">Not assigned</span>';
       })()}</td>
       <td><span class="badge ${u.role==='admin'?'hard':u.role==='si'?'adm':'easy'}">${u.role==='si'?'Section Incharge':u.role==='admin'?'Admin':'Engineer'}</span></td>
-      <td style="white-space:nowrap">
+      <td style="white-space:nowrap;max-width:none;overflow:visible">
         <button class="btn sm edt" onclick="openEUModal('${u.id}')" style="margin-right:4px">Edit</button>
         <button class="btn sm" onclick="openPinModal('${u.id}')">Change PIN</button>
         ${isInactive
