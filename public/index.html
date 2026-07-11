@@ -2100,7 +2100,7 @@ function renderSIUserTable(){
         <button class="btn sm edt" onclick="openEditSI('${u.id}')">Edit</button>
         <button class="btn sm" onclick="openPinModal('${u.id}')">Change PIN</button>
         ${isInactive
-          ?`<button class="btn sm ok" onclick="reactivateUser('${u.id}')" style="margin-right:4px">Reactivate</button>`+(!isSA&&!u._engListLen?`<button class="del" onclick="deleteUserAccount('${u.id}')" title="Permanently delete">&#x2715; Delete</button>`:'')
+          ?`<button class="btn sm ok" onclick="reactivateUser('${u.id}')" style="margin-right:4px">Reactivate</button>`+(isSA||!u._engListLen?`<button class="del" onclick="deleteUserAccount('${u.id}')" title="Permanently delete">&#x2715; Delete</button>`:'')
           :`<button class="del" onclick="removeSIUser('${u.id}')" title="Remove">&#x2715;</button>`}
       </td>
     </tr>`;

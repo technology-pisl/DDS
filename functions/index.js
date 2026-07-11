@@ -405,8 +405,8 @@ exports.adminDeleteUser = onCall(CALL_OPTS, async (request) => {
   if (user.active !== false) {
     throw new HttpsError("failed-precondition", "Deactivate this account before deleting it.");
   }
-  if (user.role !== "user" && user.role !== "si") {
-    throw new HttpsError("failed-precondition", "Only deactivated engineers or Section Incharges can be deleted this way.");
+  if (user.role !== "user" && user.role !== "si" && user.role !== "sadmin") {
+    throw new HttpsError("failed-precondition", "Only deactivated engineers, Section Incharges, or Site Admins can be deleted this way.");
   }
 
   if (user.role === "user") {
@@ -414,7 +414,7 @@ exports.adminDeleteUser = onCall(CALL_OPTS, async (request) => {
     if (!entriesSnap.empty) {
       throw new HttpsError("failed-precondition", "Cannot delete — entries still exist for this engineer.");
     }
-  } else {
+  } else if (user.role === "si") {
     const linkedSnap = await db.collection("users").where("siId", "==", uid).limit(1).get();
     if (!linkedSnap.empty) {
       throw new HttpsError("failed-precondition", "Cannot delete — engineers are still linked to this Section Incharge.");
