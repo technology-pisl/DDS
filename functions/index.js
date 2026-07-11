@@ -491,37 +491,93 @@ exports.syncMasterData = onCall(CALL_OPTS, async (request) => {
   return { count: rows.length };
 });
 
-function parseCsv(text) {
-  const lines = text.split(/\r\n|\n/).filter((l) => l.trim().length);
-  if (lines.length < 2) return [];
-  const splitLine = (line) => {
-    const out = [];
-    let cur = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (inQuotes) {
-        if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-        else if (c === '"') inQuotes = false;
-        else cur += c;
-      } else if (c === '"') inQuotes = true;
-      else if (c === ",") { out.push(cur); cur = ""; }
+function splitCsvLine(line) {
+  const out = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') inQuotes = false;
       else cur += c;
-    }
-    out.push(cur);
-    return out;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ",") { out.push(cur); cur = ""; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+// Ported from the original app's client-side parseDataSheet(): matches columns
+// by keyword anywhere in the header text (not literal header names, since the
+// sheet's own wording varies) so the output always uses the short field names
+// (site/str/act/elem/loc/cat/uom/qty/rate/bench) the rest of the app expects.
+function parseCsv(text) {
+  const rows = text
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .filter((l) => l.trim())
+    .map(splitCsvLine);
+  if (rows.length < 2) return [];
+
+  const r0 = rows[0].join("").toLowerCase();
+  const hasTypeRow = ["dropdown", "drop down", "manual", "auto"].some((k) => r0.includes(k));
+  const hdrIdx = hasTypeRow ? 1 : 0;
+  const dataIdx = hdrIdx + 1;
+  const hdrs = rows[hdrIdx].map((h) => h.toLowerCase().trim());
+
+  const colIndex = (keywords, fallback) => {
+    const i = hdrs.findIndex((h) => keywords.some((k) => h.includes(k)));
+    return i >= 0 ? i : fallback;
   };
-  // Row 0 is type labels (skipped), row 1 is the real header row, data starts row 2.
-  const header = splitLine(lines[1]).map((h) => h.trim().toLowerCase());
-  return lines.slice(2).map((line) => {
-    const cells = splitLine(line);
-    const row = {};
-    header.forEach((h, i) => {
-      if (!h) return; // Firestore rejects empty-string field names — drop blank/unlabeled columns
-      row[h] = (cells[i] || "").trim();
+  const C = {
+    site: colIndex(["site"], 0),
+    str: colIndex(["area", "structure"], 1),
+    act: colIndex(["activity"], 2),
+    elem: colIndex(["element"], 3),
+    loc: colIndex(["location"], 4),
+    cat: colIndex(["category"], 5),
+    uom: colIndex(["uom", "unit"], 6),
+    qty: colIndex(["quantity", "qty"], 7),
+    rate: colIndex(["rate", "labour"], 8),
+    bench: colIndex(["benchmark"], 9),
+  };
+  // Strip thousands separators/currency symbols/etc. that spreadsheet
+  // formatting can add (e.g. "2,056.94") before parsing as a number.
+  const num = (v) => {
+    const s = String(v || "").replace(/[^0-9.-]/g, "");
+    return parseFloat(s) || 0;
+  };
+
+  const out = [];
+  let lastSite = "";
+  let lastStr = "";
+  for (let i = dataIdx; i < rows.length; i++) {
+    const row = rows[i];
+    if (row.every((c) => !c)) continue;
+    const g = (k) => (row[C[k]] || "").trim();
+    const rs = g("site");
+    const rstr = g("str");
+    if (rs) lastSite = rs;
+    if (rstr) lastStr = rstr;
+    const act = g("act");
+    if (!act) continue; // rows without an activity aren't real data rows (section breaks, etc.)
+    out.push({
+      site: lastSite,
+      str: lastStr,
+      act,
+      elem: g("elem"),
+      loc: g("loc"),
+      cat: g("cat"),
+      uom: g("uom"),
+      qty: num(g("qty")),
+      rate: num(g("rate")),
+      bench: num(g("bench")),
     });
-    return row;
-  });
+  }
+  return out;
 }
 
 // ── DATE UNLOCKS (admin only) ────────────────────────────────────────────
