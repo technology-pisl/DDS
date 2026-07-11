@@ -2608,6 +2608,7 @@ async function addUser(){
   const siUser=USERS.find(u=>u.id===siVal);
   const siId=siUser?siUser.id:(siVal.includes('_')?'':''); // legacy free-text SI names aren't supported by adminCreateUser
   const finalSIId=(role==='si'||role==='admin')?'':siId;
+  if(role==='user'&&!finalSIId){toast('Section Incharge is required for engineers.','er');return;}
   setLoader(true,'Adding user…');
   try{
     await callFn('adminCreateUser',{name, role, site, empCode:code, siId:finalSIId, pin});

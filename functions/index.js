@@ -253,6 +253,14 @@ exports.adminCreateUser = onCall(CALL_OPTS, async (request) => {
   const pin = String(request.data.pin || "0000");
   assertPin(pin);
 
+  if (role === "user") {
+    if (!siId) throw new HttpsError("invalid-argument", "Section Incharge is required for engineers.");
+    const siSnap = await db.collection("users").doc(siId).get();
+    if (!siSnap.exists || siSnap.data().role !== "si") {
+      throw new HttpsError("invalid-argument", "siId must reference an existing Section Incharge.");
+    }
+  }
+
   const userRecord = await auth.createUser({ displayName: name });
   const uid = userRecord.uid;
   await auth.setCustomUserClaims(uid, { role, site, siId });
