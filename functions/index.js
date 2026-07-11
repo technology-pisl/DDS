@@ -493,7 +493,7 @@ exports.syncMasterData = onCall(CALL_OPTS, async (request) => {
 
 function parseCsv(text) {
   const lines = text.split(/\r\n|\n/).filter((l) => l.trim().length);
-  if (!lines.length) return [];
+  if (lines.length < 2) return [];
   const splitLine = (line) => {
     const out = [];
     let cur = "";
@@ -511,11 +511,15 @@ function parseCsv(text) {
     out.push(cur);
     return out;
   };
-  const header = splitLine(lines[0]).map((h) => h.trim().toLowerCase());
-  return lines.slice(1).map((line) => {
+  // Row 0 is type labels (skipped), row 1 is the real header row, data starts row 2.
+  const header = splitLine(lines[1]).map((h) => h.trim().toLowerCase());
+  return lines.slice(2).map((line) => {
     const cells = splitLine(line);
     const row = {};
-    header.forEach((h, i) => { row[h] = (cells[i] || "").trim(); });
+    header.forEach((h, i) => {
+      if (!h) return; // Firestore rejects empty-string field names — drop blank/unlabeled columns
+      row[h] = (cells[i] || "").trim();
+    });
     return row;
   });
 }
