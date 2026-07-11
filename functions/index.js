@@ -333,15 +333,107 @@ exports.adminSetUserActive = onCall(CALL_OPTS, async (request) => {
   requireRole(request, ["admin"]);
   const uid = assertNonEmptyString(request.data.uid, "uid", 128);
   const active = !!request.data.active;
-  await db.collection("users").doc(uid).set(
-    { active, updatedAt: FieldValue.serverTimestamp() },
-    { merge: true },
-  );
+  const userRef = db.collection("users").doc(uid);
+  const snap = await userRef.get();
+  if (!snap.exists) throw new HttpsError("not-found", "User not found.");
+  const user = snap.data();
+
+  const patch = { active, updatedAt: FieldValue.serverTimestamp() };
+
+  if (!active && user.role === "si") {
+    // Block deactivating an SI while any active engineer is still assigned —
+    // those entries would otherwise have nowhere to route for review.
+    const linkedSnap = await db.collection("users").where("siId", "==", uid).get();
+    const activeEngineers = linkedSnap.docs.filter((d) => d.data().active !== false);
+    if (activeEngineers.length > 0) {
+      throw new HttpsError(
+        "failed-precondition",
+        `Cannot deactivate — ${activeEngineers.length} active engineer(s) are still assigned to this Section Incharge. Reassign them first.`,
+      );
+    }
+  }
+
+  if (active && user.role === "user") {
+    // Reactivating an engineer requires a currently-active Section Incharge —
+    // either their existing one (if it's still active) or a new one supplied
+    // here, since the old one may have been deactivated in the meantime.
+    const requestedSiId = request.data.siId !== undefined ? String(request.data.siId).slice(0, 128) : undefined;
+    const siIdToCheck = requestedSiId !== undefined ? requestedSiId : user.siId || "";
+    let siValid = false;
+    if (siIdToCheck) {
+      const siSnap = await db.collection("users").doc(siIdToCheck).get();
+      siValid = siSnap.exists && siSnap.data().role === "si" && siSnap.data().active !== false;
+    }
+    if (!siValid) {
+      throw new HttpsError(
+        "failed-precondition",
+        "This engineer's Section Incharge is inactive — assign a new, active Section Incharge to reactivate.",
+      );
+    }
+    if (requestedSiId !== undefined) patch.siId = requestedSiId;
+  }
+
+  await userRef.set(patch, { merge: true });
+
+  if (patch.siId !== undefined) {
+    await auth.setCustomUserClaims(uid, { role: user.role, site: user.site || "", siId: patch.siId });
+  }
+
   if (!active) {
     await auth.updateUser(uid, { disabled: true }).catch(() => {});
   } else {
     await auth.updateUser(uid, { disabled: false }).catch(() => {});
   }
+  return { ok: true };
+});
+
+/**
+ * Permanently deletes an engineer or Section Incharge account — only once
+ * it's deactivated, and only once nothing still references it (no entries
+ * for an engineer, no linked engineers for an SI). A row is kept in
+ * deleted_users_log so a deletion can still be traced back later even
+ * though the account itself is gone.
+ */
+exports.adminDeleteUser = onCall(CALL_OPTS, async (request) => {
+  const a = requireRole(request, ["admin"]);
+  const uid = assertNonEmptyString(request.data.uid, "uid", 128);
+  const userRef = db.collection("users").doc(uid);
+  const snap = await userRef.get();
+  if (!snap.exists) throw new HttpsError("not-found", "User not found.");
+  const user = snap.data();
+
+  if (user.active !== false) {
+    throw new HttpsError("failed-precondition", "Deactivate this account before deleting it.");
+  }
+  if (user.role !== "user" && user.role !== "si") {
+    throw new HttpsError("failed-precondition", "Only deactivated engineers or Section Incharges can be deleted this way.");
+  }
+
+  if (user.role === "user") {
+    const entriesSnap = await db.collection("entries").where("userId", "==", uid).limit(1).get();
+    if (!entriesSnap.empty) {
+      throw new HttpsError("failed-precondition", "Cannot delete — entries still exist for this engineer.");
+    }
+  } else {
+    const linkedSnap = await db.collection("users").where("siId", "==", uid).limit(1).get();
+    if (!linkedSnap.empty) {
+      throw new HttpsError("failed-precondition", "Cannot delete — engineers are still linked to this Section Incharge.");
+    }
+  }
+
+  const batch = db.batch();
+  batch.set(db.collection("deleted_users_log").doc(), {
+    uid,
+    name: user.name,
+    empCode: user.empCode || "",
+    role: user.role,
+    deletedBy: a.uid,
+    deletedAt: FieldValue.serverTimestamp(),
+  });
+  batch.delete(userRef);
+  batch.delete(db.collection("credentials").doc(uid));
+  await batch.commit();
+  await auth.deleteUser(uid);
   return { ok: true };
 });
 

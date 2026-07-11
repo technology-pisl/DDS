@@ -41,6 +41,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /deleted_users_log/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     match /vendors/{id} {
       allow read: if signedIn();
       allow write: if false;

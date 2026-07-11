@@ -377,6 +377,20 @@ input.qty-err{border-color:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.1);color
   </div>
 </div>
 
+<!-- REACTIVATE-ENGINEER: pick a new (active) Section Incharge -->
+<div class="modal-bg" id="reactivate-si-modal">
+  <div class="modal">
+    <div class="modal-title">Assign a New Section Incharge</div>
+    <div class="hint" style="margin-bottom:9px;color:#92400e">This engineer's Section Incharge is deactivated. Choose an active Section Incharge to reactivate this engineer.</div>
+    <div class="field" style="margin-bottom:14px">
+      <span class="lbl">Section Incharge</span>
+      <select id="reactivate-si-select"><option value="">— choose —</option></select>
+      <span class="err" id="reactivate-si-err" style="display:none"></span>
+    </div>
+    <div class="row"><button class="btn pri sm" onclick="confirmReactivateWithSI()">Reactivate</button><button class="btn sm" onclick="closeReactivateSIModal()">Cancel</button></div>
+  </div>
+</div>
+
 <!-- EDIT USER MODAL (admin only) -->
 <div class="modal-bg" id="eu-modal">
   <div class="modal" style="width:420px">
@@ -2064,6 +2078,7 @@ function renderSIUserTable(){
     } else {
       const _uName=(u.name||'').trim().toLowerCase();
       const engList=USERS.filter(e=>(e.role==='user')&&(e.siId===u.id||(e.si||'').trim().toLowerCase()===_uName));
+      u._engListLen=engList.length;
       engBadges=engList.length
         ?engList.map(e=>`<span class="badge easy" style="margin-right:3px">${esc(e.name)}</span>`).join('')
         :'<span style="color:var(--color-text-tertiary);font-size:10px">No engineers linked</span>';
@@ -2085,7 +2100,7 @@ function renderSIUserTable(){
         <button class="btn sm edt" onclick="openEditSI('${u.id}')">Edit</button>
         <button class="btn sm" onclick="openPinModal('${u.id}')">Change PIN</button>
         ${isInactive
-          ?`<button class="btn sm ok" onclick="reactivateUser('${u.id}')">Reactivate</button>`
+          ?`<button class="btn sm ok" onclick="reactivateUser('${u.id}')" style="margin-right:4px">Reactivate</button>`+(!isSA&&!u._engListLen?`<button class="del" onclick="deleteUserAccount('${u.id}')" title="Permanently delete">&#x2715; Delete</button>`:'')
           :`<button class="del" onclick="removeSIUser('${u.id}')" title="Remove">&#x2715;</button>`}
       </td>
     </tr>`;
@@ -2146,14 +2161,9 @@ async function saveEditSI(){
 
 async function removeSIUser(id){
   const u=USERS.find(x=>x.id===id);if(!u)return;
-  if(!confirm('Deactivate SI login for "'+u.name+'"? Engineers linked to them will lose their SI assignment, but existing entries are kept.'))return;
+  if(!confirm('Deactivate login for "'+u.name+'"?'+(u.role==='si'?' This will fail if any active engineers are still assigned to them — reassign those first.':'')))return;
   setLoader(true,'Deactivating…');
   try{
-    // Unlink engineers first (each is its own adminUpdateUser call — no bulk callable)
-    for(const eng of USERS.filter(e=>e.siId===id)){
-      try{ await callFn('adminUpdateUser',{uid:eng.id, siId:''}); }
-      catch(ex){ console.warn('Unlink failed for',eng.name,ex.message); }
-    }
     await callFn('adminSetUserActive',{uid:id, active:false});
     toast('"'+u.name+'" deactivated.','warn');
   }catch(ex){toast(ex.message||'Deactivate failed.','er');}
@@ -2742,7 +2752,7 @@ function renderUT(){
         <button class="btn sm edt" onclick="openEUModal('${u.id}')" style="margin-right:4px">Edit</button>
         <button class="btn sm" onclick="openPinModal('${u.id}')">Change PIN</button>
         ${isInactive
-          ?`<button class="btn sm ok" onclick="reactivateUser('${u.id}')">Reactivate</button>`
+          ?`<button class="btn sm ok" onclick="reactivateUser('${u.id}')" style="margin-right:4px">Reactivate</button>`+(ENTRIES.some(e=>e.userId===u.id)?'':`<button class="del" onclick="deleteUserAccount('${u.id}')" title="Permanently delete">&#x2715; Delete</button>`)
           :`<button class="del" onclick="removeUser('${u.id}')">&#x2715;</button>`}
       </td>
     </tr>`;
@@ -2754,7 +2764,52 @@ async function reactivateUser(id){
   try{
     await callFn('adminSetUserActive',{uid:id, active:true});
     toast((u?u.name:'User')+' reactivated.','ok');
-  }catch(ex){toast(ex.message||'Reactivate failed.','er');}
+  }catch(ex){
+    // Engineer's Section Incharge is inactive — offer to pick a new one instead of just failing.
+    if(u&&u.role==='user'&&ex.code==='failed-precondition'){
+      openReactivateSIModal(id);
+    }else{
+      toast(ex.message||'Reactivate failed.','er');
+    }
+  }
+  finally{setLoader(false);}
+}
+let REACTIVATE_UID=null;
+function openReactivateSIModal(uid){
+  REACTIVATE_UID=uid;
+  const sel=document.getElementById('reactivate-si-select');
+  const activeSIs=USERS.filter(u=>u.role==='si'&&u.active!==false);
+  sel.innerHTML='<option value="">— choose —</option>'+
+    activeSIs.map(u=>`<option value="${esc(u.id)}">${esc(u.name)}${u.empCode?' — '+esc(u.empCode):''}</option>`).join('');
+  document.getElementById('reactivate-si-err').style.display='none';
+  document.getElementById('reactivate-si-modal').classList.add('on');
+}
+function closeReactivateSIModal(){
+  document.getElementById('reactivate-si-modal').classList.remove('on');
+  REACTIVATE_UID=null;
+}
+async function confirmReactivateWithSI(){
+  const siId=document.getElementById('reactivate-si-select').value;
+  const errEl=document.getElementById('reactivate-si-err');
+  if(!siId){errEl.style.display='block';errEl.textContent='Please choose a Section Incharge.';return;}
+  const uid=REACTIVATE_UID;
+  const u=USERS.find(x=>x.id===uid);
+  setLoader(true,'Reactivating…');
+  try{
+    await callFn('adminSetUserActive',{uid, active:true, siId});
+    toast((u?u.name:'Engineer')+' reactivated with a new Section Incharge.','ok');
+    closeReactivateSIModal();
+  }catch(ex){errEl.style.display='block';errEl.textContent=ex.message||'Reactivate failed.';}
+  finally{setLoader(false);}
+}
+async function deleteUserAccount(uid){
+  const u=USERS.find(x=>x.id===uid);if(!u)return;
+  if(!confirm('Permanently delete "'+u.name+'"? This cannot be undone.'))return;
+  setLoader(true,'Deleting…');
+  try{
+    await callFn('adminDeleteUser',{uid});
+    toast('"'+u.name+'" permanently deleted.','warn');
+  }catch(ex){toast(ex.message||'Delete failed.','er');}
   finally{setLoader(false);}
 }
 async function addVendor(){
